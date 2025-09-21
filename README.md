@@ -1,7 +1,6 @@
 # Notion Inline `$ → Equation` Converter
 
-This Chrome Extension lets you quickly convert inline math expressions written in `$...$` (or `$$...$$`) into **true Notion inline equations**.
-It simulates the real Notion hotkey workflow, so you can process multiple equations automatically.
+A Chrome extension to convert `$...$` (and `$$...$$`) into **true Notion inline equations** by simulating the real Notion workflow.
 
 ---
 
@@ -9,10 +8,14 @@ It simulates the real Notion hotkey workflow, so you can process multiple equati
 
 * Detects inline math wrapped in `$...$` or `$$...$$` inside editable Notion blocks.
 * Skips code blocks, already-converted equations, and escaped `\$`.
-* Converts math into Notion inline equations by simulating key presses.
-* Automatically advances to the next equation after conversion.
-* Provides a small on-screen HUD with instructions.
-* Supports **Ctrl+M** (Windows/Linux) or **Cmd+M** (Mac) as the main shortcut.
+* Converts math into native inline equations by simulating key presses.
+* Auto-advances to the next equation after each conversion.
+* Lightweight on-screen HUD with minimal controls.
+* Three ways to trigger:
+
+  * **Keyboard:** Windows/Linux `Ctrl+M`, macOS `Command+Shift+M`
+  * **Toolbar button:** Click the extension icon
+  * **Right-click menu:** “Convert \$…\$ to inline equations”
 
 ---
 
@@ -24,57 +27,70 @@ It simulates the real Notion hotkey workflow, so you can process multiple equati
    ```
    chrome://extensions/
    ```
-3. Enable **Developer Mode** (toggle at top right).
-4. Click **Load unpacked** and select the folder containing these files (`manifest.json`, `background.js`, `content.js`).
+3. Enable **Developer mode**.
+4. Click **Load unpacked** and select the folder with `manifest.json`, `background.js`, and `content.js`.
+
+> Notes:
+>
+> * Permissions used: `activeTab`, `scripting`, and `contextMenus`.
+> * Works on `notion.so` and custom `notion.site` domains.
 
 ---
 
 ## Usage
 
-1. Open any Notion page.
-
-2. Write math expressions like:
+1. Open any Notion page and write something like:
 
    ```
    The equation of a circle is $x^2 + y^2 = r^2$.
    ```
 
-3. Press **Ctrl+M** (or **Cmd+M** on Mac) to activate the converter.
+2. Trigger the converter using **any** of the following:
 
-   * Each press converts the next `$...$` into an inline equation.
-   * Press **Ctrl+M multiple times** to convert all equations on the page.
+   * **Keyboard:**
 
-4. HUD controls during conversion:
+     * Windows/Linux: `Ctrl+M`
+     * macOS: `Command+Shift+M` (avoids the OS-reserved `Command+M`)
+   * **Toolbar button:** Click the extension icon in the Chrome toolbar.
+   * **Right-click menu:** Choose “Convert \$…\$ to inline equations”.
 
-   * **ESC** → Exit guide
-   * **B** → Go back one step
-   * **Cmd/Ctrl+Shift+E** → Use Notion’s real inline-equation hotkey (auto-advance will continue)
+3. Each trigger converts the next `$…$` to an inline equation and advances. Repeat to process the whole page.
+
+### HUD controls during conversion
+
+* `ESC` → Exit
+* `B` → Step back one target
+* `Cmd/Ctrl+Shift+E` → Use Notion’s native inline-equation hotkey; auto-advance continues
+
+---
+
+## Customizing the Shortcut
+
+You can change shortcuts at:
+
+```
+chrome://extensions/shortcuts
+```
+
+If `Command+Shift+M` conflicts on macOS, pick an alternative (e.g., `Option+M` or `Ctrl+Shift+M`).
 
 ---
 
 ## Example
 
-Before:
+**Before**
 
 ```
 E = mc^2  can be written as $E=mc^2$ in Notion.
 ```
 
-After pressing **Ctrl+M**:
+**After**
 
-* `$E=mc^2$` is converted into a proper Notion inline equation block.
-
----
-
-## Notes
-
-* Works on `notion.so` and custom `notion.site` domains.
-* Requires minimal permissions: only active tab and scripting.
-* You can edit the shortcut in Chrome under:
-
-  ```
-  chrome://extensions/shortcuts
-  ```
+* `$E=mc^2$` becomes a proper Notion inline equation block.
 
 ---
 
+## Troubleshooting
+
+* If the keyboard shortcut doesn’t fire, set it explicitly in `chrome://extensions/shortcuts`.
+* The toolbar button and right-click menu are reliable fallbacks on pages or systems where shortcuts are blocked.
