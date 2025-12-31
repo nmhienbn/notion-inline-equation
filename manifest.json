@@ -1,18 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "Notion Inline $ or $$ → Equation",
-  "version": "0.0.2",
-  "description": "Easily convert math formulas wrapped in $...$ or $$...$$ into true Notion inline equations. This extension saves time by detecting equations inside editable Notion blocks, skipping code and already converted text, and turning them into native math blocks. You can trigger the conversion in three ways: with a keyboard shortcut (Ctrl+M on Windows/Linux, Command+Shift+M on macOS), by clicking the toolbar button, or through a right-click menu. It works seamlessly on both notion.so and custom notion.site domains, auto-advances through multiple equations for quick processing, and provides a lightweight on-screen HUD with simple controls. Shortcuts can also be customized in chrome://extensions/shortcuts, while the toolbar button and context menu ensure easy access when shortcuts are unavailable.",
-  "minimum_chrome_version": "109",
-  "icons": {
-    "16": "icons/icon16.ico",
-    "32": "icons/icon32.ico",
-    "48": "icons/icon48.ico",
-    "128": "icons/icon128.ico"
-  },
-  "permissions": ["activeTab", "scripting", "contextMenus"],
+  "name": "Notion Equation Converter (Inline & Block)",
+  "version": "0.1.0",
+  "description": "Convert $...$ to inline equations, and provides tools for block equation conversion.",
+  
+  "permissions": ["activeTab", "scripting", "contextMenus", "storage"],
   "host_permissions": ["https://www.notion.so/*", "https://*.notion.site/*"],
+  
   "background": { "service_worker": "background.js" },
+  
   "content_scripts": [
     {
       "matches": ["https://www.notion.so/*", "https://*.notion.site/*"],
@@ -21,22 +17,38 @@
       "run_at": "document_idle"
     }
   ],
+  
   "commands": {
     "convert_inline_equations": {
       "suggested_key": {
         "default": "Ctrl+M",
         "mac": "Command+Shift+M"
       },
-      "description": "Convert $...$ into Notion inline equations across the page"
+      "description": "Mode 1: Convert $...$ to inline equations"
+    },
+    "convert_block_equations": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+B",
+        "mac": "Command+Shift+B"
+      },
+      "description": "Mode 2: Convert single-equation blocks to display equations"
+    },
+    "convert_inline_to_block": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+X",
+        "mac": "Command+Shift+X"
+      },
+      "description": "Mode 3: Convert single inline-equation blocks to block equations"
     }
   },
+  
   "action": {
+    "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.ico",
       "32": "icons/icon32.ico",
       "48": "icons/icon48.ico",
       "128": "icons/icon128.ico"
-    },
-    "default_title": "Notion Inline Equation Converter"
+    }
   }
 }

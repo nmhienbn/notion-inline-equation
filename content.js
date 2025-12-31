@@ -1,4 +1,4 @@
-// content.js — Guided $...$ → Notion inline equation with auto-advance on real hotkey
+// content.js - Two modes: inline and block conversion
 
 const ROOTS = [".notion-page-content", ".notion-frame", "main", "body"];
 const HUD_Z = 2147483646;
@@ -10,11 +10,13 @@ const isEditable = el => !!el && (el.getAttribute("contenteditable") === "true" 
 const isCodeCtx = el => el.closest?.(".notion-code-block, pre, code");
 const isMathAlready = el => el.closest?.(".notion-equation, .katex");
 
-// --- hotkey detector: real Notion inline-equation (we don't block it)
+// Hotkey detector
 function isInlineEqHotkey(e) {
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
   return e.key === "E" && e.shiftKey && (isMac ? e.metaKey : e.ctrlKey) && !e.altKey;
 }
+
+// ==================== MODE 1: INLINE CONVERSION ====================
 
 // Collect text nodes containing $
 function* textNodes(root) {
@@ -63,10 +65,13 @@ function findDollarSpans(text) {
   return spans;
 }
 
-// HUD + highlight
-function makeHUD() {
+// HUD
+function makeHUD(mode) {
   let hud = document.getElementById("eq-hud");
-  if (hud) return hud;
+  if (hud) {
+    updateHUDText(hud, mode);
+    return hud;
+  }
   hud = document.createElement("div");
   hud.id = "eq-hud";
   Object.assign(hud.style, {
@@ -76,15 +81,38 @@ function makeHUD() {
     borderRadius: "8px", zIndex: String(HUD_Z), pointerEvents: "none",
     boxShadow: "0 2px 12px rgba(0,0,0,0.3)", maxWidth: "360px", lineHeight: "1.4"
   });
-  hud.innerHTML =
-    "<b>$ → equation</b><br/>" +
-    "Press <b>Cmd/Ctrl+Shift+E</b> to convert. Auto-advances to next.<br/>" +
-    "<b>B</b> back • <b>ESC</b> exit";
+  updateHUDText(hud, mode);
   document.documentElement.appendChild(hud);
   return hud;
 }
-const showHUD = () => (makeHUD().style.display = "block");
-const hideHUD = () => { const h = document.getElementById("eq-hud"); if (h) h.style.display = "none"; };
+
+function updateHUDText(hud, mode) {
+  if (mode === "block") {
+    hud.innerHTML =
+      "<b>Block Conversion (Mode 2)</b><br/>" +
+      "Converting `$$...$$` blocks to block equations...<br/>" +
+      "<b>ESC</b> to stop";
+  } else if (mode === "inline-to-block") {
+    hud.innerHTML =
+      "<b>Inline-to-Block (Mode 3)</b><br/>" +
+      "Converting single inline equations to block equations...<br/>" +
+      "<b>ESC</b> to stop";
+  } else {
+    hud.innerHTML =
+      "<b>Inline Equation Mode</b><br/>" +
+      "Press <b>Cmd/Ctrl+Shift+E</b> to convert. Auto-advances.<br/>" +
+      "<b>B</b> back • <b>ESC</b> exit";
+  }
+}
+
+const showHUD = (mode) => {
+  const hud = makeHUD(mode);
+  hud.style.display = "block";
+};
+const hideHUD = () => { 
+  const h = document.getElementById("eq-hud"); 
+  if (h) h.style.display = "none"; 
+};
 
 function highlightSelection(range) {
   let box = document.getElementById("eq-box");
@@ -105,7 +133,10 @@ function highlightSelection(range) {
     width: `${r.width + 4}px`, height: `${r.height + 4}px`, display: "block"
   });
 }
-const hideHighlight = () => { const b = document.getElementById("eq-box"); if (b) b.style.display = "none"; };
+const hideHighlight = () => { 
+  const b = document.getElementById("eq-box"); 
+  if (b) b.style.display = "none"; 
+};
 
 // Selection helpers
 function focusEditableFrom(node) {
@@ -114,6 +145,7 @@ function focusEditableFrom(node) {
   if (el) el.focus({ preventScroll: true });
   return el;
 }
+
 function setSelectionInTextNode(node, start, end) {
   const sel = window.getSelection();
   const r = document.createRange();
@@ -123,6 +155,7 @@ function setSelectionInTextNode(node, start, end) {
   sel.addRange(r);
   return r;
 }
+
 async function deleteSelection() {
   document.execCommand?.("delete");
   const a = document.activeElement;
@@ -130,92 +163,83 @@ async function deleteSelection() {
   await sleep(STEP_DELAY);
 }
 
-// Build items
-function collectItems() {
-  const items = [];
+// Build items for inline mode
+function collectInlineItems() {
+  const blocks = new Set();
   const roots = new Set();
   for (const s of ROOTS) document.querySelectorAll(s).forEach(n => roots.add(n));
   if (!roots.size) roots.add(document.body);
 
   for (const root of roots) {
     for (const tn of textNodes(root)) {
-      const spans = findDollarSpans(tn.nodeValue);
-      spans.forEach(span => items.push({ tn, span }));
+      blocks.add(tn.parentElement);
     }
   }
-  return items;
+  return Array.from(blocks).map(block => ({ block }));
 }
 
-// Guide state
+// Guide state for inline mode
 let guide = null;
 
 function stopGuide() {
   if (!guide) return;
-  hideHUD(); hideHighlight();
-  window.removeEventListener("keydown", onKey, true);
+  hideHUD(); 
+  hideHighlight();
+  window.removeEventListener("keydown", onKeyInline, true);
   if (guide.mo) { guide.mo.disconnect(); guide.mo = null; }
   guide = null;
 }
 
-async function goStep(delta) {
+async function goStepInline(delta) {
   if (!guide) return;
   const { items } = guide;
-  let i = guide.index + delta;
-  if (i < 0) i = 0;
-  if (i >= items.length) { stopGuide(); return; }
-  guide.index = i;
-
-  const { tn } = items[i];
-  const text = tn.nodeValue;
-  const spans = findDollarSpans(text);
-  if (!spans.length) return goStep(delta >= 0 ? +1 : -1);
   
-  // Store span index in case of multiple spans in same node
-  if (!guide.spanIndex) guide.spanIndex = 0;
+  let i = guide.index;
+  if (i < 0) i = 0;
+  
+  const direction = delta >= 0 ? 1 : -1;
+  let found = null;
 
-  // If current span index is beyond available spans, go next text node
-  if (delta > 0 && guide.spanIndex >= spans.length) {
-    guide.spanIndex = 0; // Reset for next node
-    return goStep(+1);
-  }
-
-  // If going back and current span index is 0, go previous text node
-  if (delta < 0) {
-    guide.spanIndex--;
-    if (guide.spanIndex < 0) {
-      guide.spanIndex = 0;
-      return goStep(-1);
+  while (i >= 0 && i < items.length) {
+    const block = items[i].block;
+    for (const tn of textNodes(block)) {
+      const spans = findDollarSpans(tn.nodeValue);
+      if (spans.length > 0) {
+        found = { tn, span: spans[0] };
+        break;
+      }
     }
+    if (found) break;
+    i += direction;
   }
 
-  const s = spans[guide.spanIndex]; // recomputed; take first current span in this node
+  if (!found) { stopGuide(); return; }
+  
+  guide.index = i;
+  const { tn, span: s } = found;
 
   const ed = focusEditableFrom(tn);
-  if (!ed) return goStep(delta >= 0 ? +1 : -1);
+  if (!ed) {
+    return goStepInline(direction);
+  }
 
-  // remove right delimiter
   setSelectionInTextNode(tn, s.innerEnd, s.close);
   await deleteSelection();
 
-  // remove left delimiter
   setSelectionInTextNode(tn, s.open, s.innerStart);
   await deleteSelection();
 
-  // select inner expression
   const innerLen = s.innerEnd - s.innerStart;
   const r = setSelectionInTextNode(tn, s.open, s.open + innerLen);
   highlightSelection(r);
-  showHUD();
+  showHUD("inline");
 
-  // arm “auto-advance after Notion wraps as equation”
-  armAutoAdvance();
+  armAutoAdvanceInline();
 }
 
-// Wait until the selection is inside a Notion equation (or equation node appears), then go next
-function armAutoAdvance() {
+function armAutoAdvanceInline() {
   if (!guide) return;
 
-  // Detect when the selection is inside a rendered equation OR the equation dialog appears.
   function selectionInsideEquation() {
     const sel = window.getSelection();
     const node = sel && sel.anchorNode ? (sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode) : null;
@@ -232,77 +256,29 @@ function armAutoAdvance() {
     rafId = requestAnimationFrame(async () => {
       if (!guide) return;
 
-      // 1) If the Notion equation dialog is open, auto-click Done
       const dlg = findEquationDialog();
       if (dlg && !doneClickedOnce) {
         const ok = await autoClickDialogDone(dlg);
         if (ok) {
           doneClickedOnce = true;
-          // Wait for dialog to close and for Notion to insert the equation
           setTimeout(() => {
             if (guide) {
-              guide.spanIndex++;
-              goStep(+1);
+              goStepInline(+1);
             }
           }, 60);
           return;
         }
       }
 
-      // 2) Fallback: if Notion rendered inline immediately (no dialog), advance
       if (selectionInsideEquation()) {
         setTimeout(() => { 
           if (guide) {
-            guide.spanIndex++;
-            goStep(+1);
-          } 
+            goStepInline(+1); 
+          }
         }, 40);
       }
     });
   });
-
-  // Auto dispatch Ctrl+Shift+E every 150ms
-  if (!hotkeyDispatched) {
-    hotkeyDispatched = true;
-    setTimeout(() => {
-      const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
-      const focused = document.activeElement;
-      
-      if (!focused) return; // Safety check
-      
-      // Dispatch keydown
-      const keydownEvent = new KeyboardEvent('keydown', {
-        key: 'E',
-        code: 'KeyE',
-        keyCode: 69,
-        which: 69,
-        shiftKey: true,
-        metaKey: isMac,
-        ctrlKey: !isMac,
-        bubbles: true,
-        cancelable: true,
-        composed: true
-      });
-      
-      focused.dispatchEvent(keydownEvent);
-      
-      // Dispatch keypress
-      const keypressEvent = new KeyboardEvent('keypress', {
-        key: 'E',
-        code: 'KeyE',
-        keyCode: 69,
-        which: 69,
-        shiftKey: true,
-        metaKey: isMac,
-        ctrlKey: !isMac,
-        bubbles: true,
-        cancelable: true,
-        composed: true
-      });
-      
-      focused.dispatchEvent(keypressEvent);
-    }, 150);
-  }
 
   guide.mo.observe(document.documentElement, {
     childList: true,
@@ -310,47 +286,73 @@ function armAutoAdvance() {
     characterData: true,
     attributes: true
   });
+
+  if (!hotkeyDispatched) {
+    hotkeyDispatched = true;
+    setTimeout(() => {
+      dispatchInlineEquationHotkey();
+    }, 150);
+  }
 }
 
-// ADD these helpers somewhere below:
+function dispatchInlineEquationHotkey() {
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+  let focused = document.activeElement;
+  
+  if (focused?.shadowRoot) {
+    focused = focused.shadowRoot.activeElement || focused;
+  }
+  
+  if (!focused || !isEditable(focused)) {
+    focused = document.querySelector('[contenteditable="true"]') || focused;
+  }
+  
+  if (!focused) return;
+  
+  const keydownEvent = new KeyboardEvent('keydown', {
+    key: 'E',
+    code: 'KeyE',
+    keyCode: 69,
+    which: 69,
+    shiftKey: true,
+    metaKey: isMac,
+    ctrlKey: !isMac,
+    bubbles: true,
+    cancelable: true,
+    composed: true
+  });
+  
+  focused.dispatchEvent(keydownEvent);
+}
 
-// Find the inline equation dialog by looking for a contenteditable editor inside a role="dialog".
 function findEquationDialog() {
   const editor = document.querySelector('div[role="dialog"] [contenteditable="true"][data-content-editable-leaf="true"]');
   return editor ? editor.closest('div[role="dialog"]') : null;
 }
 
-// Click the "Done" button inside the dialog. Returns true if we clicked it.
 async function autoClickDialogDone(dialogEl) {
   if (!dialogEl) return false;
 
-  // Try several ways to locate the Done button robustly.
   let btn = dialogEl.querySelector('div[role="button"]');
   if (btn && btn.textContent && btn.textContent.trim().toLowerCase().startsWith('done')) {
     // good
   } else {
-    // Prefer exact “Done”
     btn = Array.from(dialogEl.querySelectorAll('div[role="button"]'))
       .find(b => (b.textContent || '').trim().toLowerCase() === 'done');
-    // Or any button that contains the enter icon (svg.enter)
     if (!btn) btn = dialogEl.querySelector('div[role="button"] .enter')?.closest('div[role="button"]') || null;
   }
 
   if (!btn) return false;
 
-  // Give Notion a beat to settle text; then click.
   await new Promise(r => setTimeout(r, 20));
   btn.click();
   return true;
 }
 
-// Key handling: ESC (exit), B (back), and detect real inline-eq hotkey to auto-advance
-function onKey(e) {
+function onKeyInline(e) {
   if (!guide) return;
 
-  // Do NOT prevent the real Notion hotkey — we want Notion to receive it.
   if (isInlineEqHotkey(e)) {
-    // We just note it; MutationObserver will pick up the conversion and advance.
     return;
   }
 
@@ -360,24 +362,256 @@ function onKey(e) {
   if (e.key === "Escape") {
     e.preventDefault(); stopGuide();
   } else if ((e.key === "b" || e.key === "B") && !e.ctrlKey && !e.metaKey && !e.altKey) {
-    e.preventDefault(); goStep(-1);
+    e.preventDefault(); goStepInline(-1);
   }
 }
 
-// Start guided run
-async function runGuided() {
-  const items = collectItems();
-  if (!items.length) return;
+async function runInlineMode() {
+  const items = collectInlineItems();
+  if (!items.length) {
+    console.log('[Inline Mode] No $...$ found');
+    return;
+  }
   guide = {
     items,
     index: -1,
-    mo: null, 
-    spanIndex: 0
+    mo: null
   };
-  window.addEventListener("keydown", onKey, true);
-  await goStep(+1);
+  window.addEventListener("keydown", onKeyInline, true);
+  await goStepInline(+1);
 }
 
+// ==================== MODE 2: BLOCK CONVERSION ====================
+
+// Find blocks that contain ONLY a single equation ($$...$$)
+function collectBlockEquationItems() {
+  const items = [];
+  const roots = new Set();
+  for (const s of ROOTS) document.querySelectorAll(s).forEach(n => roots.add(n));
+  if (!roots.size) roots.add(document.body);
+
+  for (const root of roots) {
+    // Find all text blocks
+    const blocks = root.querySelectorAll('[contenteditable="true"]');
+    
+    for (const block of blocks) {
+      if (isCodeCtx(block)) continue;
+      if (isMathAlready(block)) continue;
+      
+      const text = block.textContent?.trim() || "";
+      
+      // Check if block contains ONLY $$...$$ (display equation)
+      const match = /^\$\$(.+?)\$\$$/.exec(text);
+      if (match && match[0] === text) {
+        items.push({ 
+          block, 
+          equation: match[1].trim(),
+          originalText: text
+        });
+      }
+    }
+  }
+  
+  return items;
+}
+
+// ==================== MODE 3: INLINE-TO-BLOCK CONVERSION ====================
+
+// Find blocks that contain ONLY a single Notion inline equation
+function collectInlineToBlockItems() {
+  const items = [];
+  const roots = new Set();
+  for (const s of ROOTS) document.querySelectorAll(s).forEach(n => roots.add(n));
+  if (!roots.size) roots.add(document.body);
+
+  for (const root of roots) {
+    const blocks = root.querySelectorAll('[contenteditable="true"]');
+    console.log(`[Mode 3] Checking ${blocks.length} editable blocks`);
+    
+    for (const block of blocks) {
+      if (isCodeCtx(block)) continue;
+      if (isMathAlready(block)) continue;
+
+      
+
+      // Debug: log blocks that might contain equations
+      const text = block.textContent?.trim() || '';
+      if (text.length > 0 && text.length < 200) {
+        const hasKatex = block.querySelector('.katex, .katex-html, [class*="equation"]');
+        if (hasKatex) {
+          console.log(`[Mode 3] Block with potential equation:`, {
+            text: text.substring(0, 100),
+            html: block.innerHTML.substring(0, 300),
+            classes: Array.from(block.querySelectorAll('[class*="equation"], .katex, .katex-html')).map(el => el.className)
+          });
+        }
+      }
+
+      // Look for Notion's inline equation wrapper (updated selector for new Notion)
+      const inlineEqs = block.querySelectorAll('.notion-text-equation-token, .notion-equation-inline');
+      if (inlineEqs.length === 0) continue;
+      
+      console.log(`[Mode 3] Found block with ${inlineEqs.length} inline equations`);
+
+      // Check if there is other text content
+      const clone = block.cloneNode(true);
+      // Remove ALL inline equations
+      clone.querySelectorAll('.notion-text-equation-token, .notion-equation-inline').forEach(eq => eq.remove());
+      
+      const remainingText = clone.textContent?.trim() || '';
+      console.log(`[Mode 3] Remaining text after removing equations: "${remainingText}"`);
+      
+      // If text remains (other than whitespace), skip
+      if (remainingText.length > 0) {
+        console.log(`[Mode 3] Skipping block because it has other text`);
+        continue;
+      }
+
+      // Extract LaTeX from annotation
+      const annotation = inlineEqs[0].querySelector('annotation');
+      console.log(`[Mode 3] Annotation found:`, !!annotation, annotation?.textContent);
+      
+      if (annotation && annotation.textContent) {
+        console.log(`[Mode 3] Adding item with equation: ${annotation.textContent}`);
+        items.push({ 
+          block, 
+          equation: annotation.textContent, 
+          originalText: "Inline Equation" 
+        });
+      }
+    }
+  }
+  
+  console.log(`[Mode 3] Total items collected: ${items.length}`);
+  return items;
+}
+
+let activeBlockGuide = null;
+
+function stopActiveBlockGuide() {
+  if (!activeBlockGuide) return;
+  hideHUD();
+  hideHighlight();
+  activeBlockGuide = null;
+}
+
+async function convertBlockToEquation(item) {
+  const { block, equation } = item;
+  
+  // Focus the block
+  block.focus({ preventScroll: true });
+  await sleep(50);
+  
+  // Select all text in block
+  const range = document.createRange();
+  range.selectNodeContents(block);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  
+  highlightSelection(range);
+  await sleep(60);
+  
+  // Delete content
+  range.deleteContents(); // More reliable than execCommand
+  await sleep(60);
+  
+  // Type /equation
+  document.execCommand("insertText", false, "/equation");
+  await sleep(250);
+  
+  // Press Enter to create equation block
+  block.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'Enter',
+    code: 'Enter',
+    keyCode: 13,
+    which: 13,
+    bubbles: true,
+    cancelable: true
+  }));
+  
+  await sleep(400);
+  
+  // Find the equation input field
+  const eqInput = document.querySelector('div[role="dialog"] [contenteditable="true"][data-content-editable-leaf="true"]');
+  if (eqInput) {
+    eqInput.focus();
+    await sleep(60);
+    
+    // Insert equation
+    document.execCommand("insertText", false, equation);
+    await sleep(120);
+    
+    // Click Done or press Enter
+    const doneBtn = findEquationDialog()?.querySelector('div[role="button"]');
+    if (doneBtn && (doneBtn.textContent || '').toLowerCase().includes('done')) {
+      doneBtn.click();
+    } else {
+      eqInput.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        which: 13,
+        bubbles: true,
+        cancelable: true
+      }));
+    }
+  }
+  
+  hideHighlight();
+}
+
+async function runGenericBlockMode(mode, itemCollector, modeName) {
+  const items = itemCollector();
+  
+  if (!items.length) {
+    console.log(`[${modeName}] No matching blocks found`);
+    return;
+  }
+  
+  console.log(`[${modeName}] Found ${items.length} blocks to convert`);
+  
+  activeBlockGuide = { items, currentIndex: 0, mode };
+  showHUD(mode);
+  
+  // Process all blocks sequentially
+  try {
+    for (let i = 0; i < items.length; i++) {
+      if (!activeBlockGuide) break; // User pressed ESC
+      
+      activeBlockGuide.currentIndex = i;
+      try {
+        await convertBlockToEquation(items[i]);
+      } catch (e) {
+        console.error(`[${modeName}] Error converting item ${i}`, e);
+      }
+      await sleep(600); // Wait between conversions
+    }
+  } finally {
+    stopActiveBlockGuide();
+    console.log(`[${modeName}] Conversion complete`);
+  }
+}
+
+const runBlockMode = () => runGenericBlockMode("block", collectBlockEquationItems, "Block Mode");
+const runInlineToBlockMode = () => runGenericBlockMode("inline-to-block", collectInlineToBlockItems, "Inline-to-Block Mode");
+
+// ESC to stop block modes
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && activeBlockGuide) {
+    e.preventDefault();
+    stopActiveBlockGuide();
+  }
+});
+
+// ==================== MESSAGE HANDLER ====================
+
 chrome.runtime.onMessage.addListener(m => {
-  if (m?.t === "RUN_CONVERT") runGuided();
+  if (m?.t === "RUN_INLINE_CONVERT") {
+    runInlineMode();
+  } else if (m?.t === "RUN_BLOCK_CONVERT") {
+    runBlockMode();
+  } else if (m?.t === "RUN_INLINE_TO_BLOCK_CONVERT") {
+    runInlineToBlockMode();
+  }
 });
