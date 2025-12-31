@@ -1,78 +1,64 @@
-# Notion Inline `$ → Equation` Converter
+# Notion Equation Converter (Inline & Block)
 
-A Chrome extension to convert `$...$` (and `$$...$$`) into **true Notion inline equations** by simulating the real Notion workflow.
+A Chrome extension to convert LaTeX-style math into **native Notion equations**. It supports three modes: inline conversion, block conversion, and promoting inline equations to block equations.
 
 ---
 
 ## Features
 
-* Detects inline math wrapped in `$...$` or `$$...$$` inside editable Notion blocks.
-* Skips code blocks, already-converted equations, and escaped `\$`.
-* Converts math into native inline equations by simulating key presses.
-* Auto-advances to the next equation after each conversion.
-* Lightweight on-screen HUD with minimal controls.
-* Three ways to trigger:
+### Mode 1: Inline Conversion (`$...$`)
+*   Scans for `$ math $` or `$$ math $$` inside text blocks.
+*   Converts them into Notion's **inline equation** format.
+*   Handles multiple equations per block.
+*   **Trigger:** `Ctrl+M` (macOS: `Cmd+Shift+M`)
 
-  * **Keyboard:** Windows/Linux `Ctrl+M`, macOS `Command+Shift+M`
-  * **Toolbar button:** Click the extension icon
-  * **Right-click menu:** “Convert \$…\$ to inline equations”
+### Mode 2: Block Conversion (`$$...$$`)
+*   Scans for blocks that contain **only** a display equation wrapped in `$$...$$`.
+*   Converts the entire block into a Notion **Block Equation**.
+*   **Trigger:** `Ctrl+Shift+B` (macOS: `Cmd+Shift+B`)
+
+### Mode 3: Inline-to-Block Promotion
+*   Scans for text blocks that contain **only** a single existing inline equation.
+*   Converts them into a Notion **Block Equation**.
+*   Useful for fixing equations that were pasted or formatted incorrectly as inline.
+*   **Trigger:** `Ctrl+Shift+X` (macOS: `Cmd+Shift+X`)
 
 ---
 
 ## Installation
 
 1. Download or clone this repository.
-2. Open Chrome and go to:
-
-   ```
-   chrome://extensions/
-   ```
+2. Open Chrome and go to `chrome://extensions/`.
 3. Enable **Developer mode**.
-4. Click **Load unpacked** and select the folder with `manifest.json`, `background.js`, and `content.js`.
-
-> Notes:
->
-> * Permissions used: `activeTab`, `scripting`, and `contextMenus`.
-> * Works on `notion.so` and custom `notion.site` domains.
+4. Click **Load unpacked** and select the folder containing `manifest.json`.
 
 ---
 
 ## Usage
 
-1. Open any Notion page and write something like:
+### 1. Inline Mode
+Write your math using LaTeX syntax wrapped in dollar signs:
+> The solution is $x = \frac{-b \pm \sqrt{b^2-4ac}}{2a}$.
 
-   ```
-   The equation of a circle is $x^2 + y^2 = r^2$.
-   ```
+Press **Ctrl+M** (or use the extension menu). The extension will walk through the page, converting each instance.
 
-2. Trigger the converter using **any** of the following:
+### 2. Block Mode
+Write a block containing only a double-dollar equation:
+> $$ \sum_{i=0}^n i^2 = \frac{(n^2+n)(2n+1)}{6} $$
 
-   * **Keyboard:**
+Press **Ctrl+Shift+B**. The extension will convert these text blocks into proper Notion Equation Blocks.
 
-     * Windows/Linux: `Ctrl+M`
-     * macOS: `Command+Shift+M` (avoids the OS-reserved `Command+M`)
-   * **Toolbar button:** Click the extension icon in the Chrome toolbar.
-   * **Right-click menu:** Choose “Convert \$…\$ to inline equations”.
-
-3. Each trigger converts the next `$…$` to an inline equation and advances. Repeat to process the whole page.
-
-### HUD controls during conversion
-
-* `ESC` → Exit
-* `B` → Step back one target
-* `Cmd/Ctrl+Shift+E` → Use Notion’s native inline-equation hotkey; auto-advance continues
+### 3. Inline-to-Block Mode
+If you have a block that is just a single inline equation (e.g., imported content), press **Ctrl+Shift+X** to convert it to a full Equation Block.
 
 ---
 
-## Customizing the Shortcut
+## HUD & Controls
 
-You can change shortcuts at:
+When a conversion mode is active, a HUD appears in the top-right corner.
 
-```
-chrome://extensions/shortcuts
-```
-
-If `Command+Shift+M` conflicts on macOS, pick an alternative (e.g., `Option+M` or `Ctrl+Shift+M`).
+*   **ESC**: Stop the current process.
+*   **B** (Inline mode): Step back to the previous equation.
 
 ---
 
@@ -93,4 +79,4 @@ E = mc^2  can be written as $E=mc^2$ in Notion.
 ## Troubleshooting
 
 * If the keyboard shortcut doesn’t fire, set it explicitly in `chrome://extensions/shortcuts`.
-* The toolbar button and right-click menu are reliable fallbacks on pages or systems where shortcuts are blocked.
+* **Reload Required:** If you just installed the extension, refresh your Notion tab before using it.
