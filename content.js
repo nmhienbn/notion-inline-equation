@@ -169,8 +169,26 @@ async function goStep(delta) {
   const text = tn.nodeValue;
   const spans = findDollarSpans(text);
   if (!spans.length) return goStep(delta >= 0 ? +1 : -1);
+  
+  // Store span index in case of multiple spans in same node
+  if (!guide.spanIndex) guide.spanIndex = 0;
 
-  const s = spans[0]; // recomputed; take first current span in this node
+  // If current span index is beyond available spans, go next text node
+  if (delta > 0 && guide.spanIndex >= spans.length) {
+    guide.spanIndex = 0; // Reset for next node
+    return goStep(+1);
+  }
+
+  // If going back and current span index is 0, go previous text node
+  if (delta < 0) {
+    guide.spanIndex--;
+    if (guide.spanIndex < 0) {
+      guide.spanIndex = 0;
+      return goStep(-1);
+    }
+  }
+
+  const s = spans[guide.spanIndex]; // recomputed; take first current span in this node
 
   const ed = focusEditableFrom(tn);
   if (!ed) return goStep(delta >= 0 ? +1 : -1);
@@ -207,6 +225,7 @@ function armAutoAdvance() {
   if (guide.mo) { guide.mo.disconnect(); guide.mo = null; }
   let rafId = null;
   let doneClickedOnce = false;
+  let hotkeyDispatched = false;
 
   guide.mo = new MutationObserver(() => {
     if (rafId) cancelAnimationFrame(rafId);
@@ -221,7 +240,10 @@ function armAutoAdvance() {
           doneClickedOnce = true;
           // Wait for dialog to close and for Notion to insert the equation
           setTimeout(() => {
-            if (guide) goStep(+1);
+            if (guide) {
+              guide.spanIndex++;
+              goStep(+1);
+            }
           }, 60);
           return;
         }
@@ -229,10 +251,58 @@ function armAutoAdvance() {
 
       // 2) Fallback: if Notion rendered inline immediately (no dialog), advance
       if (selectionInsideEquation()) {
-        setTimeout(() => { if (guide) goStep(+1); }, 40);
+        setTimeout(() => { 
+          if (guide) {
+            guide.spanIndex++;
+            goStep(+1);
+          } 
+        }, 40);
       }
     });
   });
+
+  // Auto dispatch Ctrl+Shift+E every 150ms
+  if (!hotkeyDispatched) {
+    hotkeyDispatched = true;
+    setTimeout(() => {
+      const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+      const focused = document.activeElement;
+      
+      if (!focused) return; // Safety check
+      
+      // Dispatch keydown
+      const keydownEvent = new KeyboardEvent('keydown', {
+        key: 'E',
+        code: 'KeyE',
+        keyCode: 69,
+        which: 69,
+        shiftKey: true,
+        metaKey: isMac,
+        ctrlKey: !isMac,
+        bubbles: true,
+        cancelable: true,
+        composed: true
+      });
+      
+      focused.dispatchEvent(keydownEvent);
+      
+      // Dispatch keypress
+      const keypressEvent = new KeyboardEvent('keypress', {
+        key: 'E',
+        code: 'KeyE',
+        keyCode: 69,
+        which: 69,
+        shiftKey: true,
+        metaKey: isMac,
+        ctrlKey: !isMac,
+        bubbles: true,
+        cancelable: true,
+        composed: true
+      });
+      
+      focused.dispatchEvent(keypressEvent);
+    }, 150);
+  }
 
   guide.mo.observe(document.documentElement, {
     childList: true,
@@ -298,7 +368,12 @@ function onKey(e) {
 async function runGuided() {
   const items = collectItems();
   if (!items.length) return;
-  guide = { items, index: -1, mo: null };
+  guide = {
+    items,
+    index: -1,
+    mo: null, 
+    spanIndex: 0
+  };
   window.addEventListener("keydown", onKey, true);
   await goStep(+1);
 }
