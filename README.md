@@ -1,3 +1,10 @@
+# Note:
+The author is busy, so bugs haven't been fixed yet.
+- If a mode finishes but the instruction bar remains, please press ESC.
+- If it takes a long time and nothing converts, press B.
+- Mode 3 is currently broken.
+
+
 # Notion Equation Converter (Inline & Block)
 
 A Chrome extension to convert LaTeX-style math into **native Notion equations**. It supports three modes: inline conversion, block conversion, and promoting inline equations to block equations.
@@ -35,6 +42,12 @@ A Chrome extension to convert LaTeX-style math into **native Notion equations**.
 ---
 
 ## Usage
+
+**Note:**
+The author is busy, so bugs haven't been fixed yet.
+- If a mode finishes but the instruction bar remains, please press ESC.
+- If it takes a long time and nothing converts, press B.
+- Mode 3 is currently broken.
 
 ### 1. Inline Mode
 Write your math using LaTeX syntax wrapped in dollar signs:
