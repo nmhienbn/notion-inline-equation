@@ -1,6 +1,14 @@
 // content.js - Two modes: inline and block conversion
 
-const ROOTS = [".notion-page-content", ".notion-frame", "main", "body"];
+const ROOTS = [".notion-page-content", ".notion-frame", ".page-body", "main", "body"];
+const INLINE_EQUATION_SELECTOR = [
+  ".notion-text-equation-token",
+  ".notion-equation-inline",
+  '[contenteditable="false"] .katex',
+  '[data-content-editable-void="true"] [class*="equation" i]',
+  '[class*="equation" i]:has(annotation)',
+  ".katex"
+].join(",");
 const HUD_Z = 2147483646;
 const STEP_DELAY = 20;
 
@@ -8,7 +16,38 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const isEditable = el => !!el && (el.getAttribute("contenteditable") === "true" || el.isContentEditable);
 const isCodeCtx = el => el.closest?.(".notion-code-block, pre, code");
-const isMathAlready = el => el.closest?.(".notion-equation, .katex");
+const isMathAlready = el => el.closest?.(".notion-equation, .notion-equation-block, figure.equation, .katex");
+
+function editableBlockFrom(node) {
+  let el = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+  while (el && el !== document.documentElement) {
+    if (isEditable(el)) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
+function closestTextBlockFrom(node) {
+  const el = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+  return editableBlockFrom(el) ||
+    el?.closest?.('[data-block-id], .notion-selectable, p, li, h1, h2, h3, h4, h5, h6');
+}
+
+function getRoots() {
+  const roots = new Set();
+  for (const selector of ROOTS) document.querySelectorAll(selector).forEach(n => roots.add(n));
+  if (!roots.size) roots.add(document.body);
+  return roots;
+}
+
+function getTextBlocks(root) {
+  const editableBlocks = Array.from(root.querySelectorAll('[contenteditable="true"]'))
+    .filter(el => !el.querySelector('[contenteditable="true"]'));
+  if (editableBlocks.length) return editableBlocks;
+
+  return Array.from(root.querySelectorAll('[data-block-id], .notion-selectable, p, li, h1, h2, h3, h4, h5, h6'))
+    .filter(el => (el.textContent || "").trim().length > 0);
+}
 
 // Hotkey detector
 function isInlineEqHotkey(e) {
@@ -24,9 +63,9 @@ function* textNodes(root) {
     acceptNode(n) {
       if (!n.nodeValue || n.nodeValue.indexOf("$") === -1) return NodeFilter.FILTER_REJECT;
       if (!n.parentElement) return NodeFilter.FILTER_REJECT;
-      if (!isEditable(n.parentElement)) return NodeFilter.FILTER_REJECT;
       if (isCodeCtx(n.parentElement)) return NodeFilter.FILTER_REJECT;
       if (isMathAlready(n.parentElement)) return NodeFilter.FILTER_REJECT;
+      if (!closestTextBlockFrom(n)) return NodeFilter.FILTER_REJECT;
       return NodeFilter.FILTER_ACCEPT;
     }
   });
@@ -140,8 +179,7 @@ const hideHighlight = () => {
 
 // Selection helpers
 function focusEditableFrom(node) {
-  let el = node.parentElement;
-  while (el && !isEditable(el)) el = el.parentElement;
+  let el = editableBlockFrom(node);
   if (el) el.focus({ preventScroll: true });
   return el;
 }
@@ -163,16 +201,21 @@ async function deleteSelection() {
   await sleep(STEP_DELAY);
 }
 
+async function replaceSelectionWithText(text) {
+  document.execCommand?.("insertText", false, text);
+  const a = document.activeElement;
+  a?.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: text }));
+  await sleep(STEP_DELAY);
+}
+
 // Build items for inline mode
 function collectInlineItems() {
   const blocks = new Set();
-  const roots = new Set();
-  for (const s of ROOTS) document.querySelectorAll(s).forEach(n => roots.add(n));
-  if (!roots.size) roots.add(document.body);
 
-  for (const root of roots) {
+  for (const root of getRoots()) {
     for (const tn of textNodes(root)) {
-      blocks.add(tn.parentElement);
+      const block = closestTextBlockFrom(tn);
+      if (block) blocks.add(block);
     }
   }
   return Array.from(blocks).map(block => ({ block }));
@@ -223,18 +266,26 @@ async function goStepInline(delta) {
     return goStepInline(direction);
   }
 
-  setSelectionInTextNode(tn, s.innerEnd, s.close);
-  await deleteSelection();
+  const inner = tn.nodeValue.slice(s.innerStart, s.innerEnd);
+  setSelectionInTextNode(tn, s.open, s.close);
+  await replaceSelectionWithText(inner);
 
-  setSelectionInTextNode(tn, s.open, s.innerStart);
-  await deleteSelection();
-
-  const innerLen = s.innerEnd - s.innerStart;
-  const r = setSelectionInTextNode(tn, s.open, s.open + innerLen);
+  const r = setSelectionInTextNode(tn, s.open, s.open + inner.length);
+  guide.currentInlineBlock = closestTextBlockFrom(tn) || items[i].block;
+  guide.inlineEquationCountBefore = countInlineEquations(guide.currentInlineBlock);
+  await sleep(guide.hasStarted ? 40 : 180);
+  guide.hasStarted = true;
   highlightSelection(r);
   showHUD("inline");
 
   armAutoAdvanceInline();
+}
+
+function countInlineEquations(block) {
+  if (!block) return 0;
+  return Array.from(block.querySelectorAll(".notion-text-equation-token, .notion-equation-inline, .katex"))
+    .filter(el => !el.closest(".katex-display, figure.equation, .notion-equation-block"))
+    .length;
 }
 
 function armAutoAdvanceInline() {
@@ -243,13 +294,22 @@ function armAutoAdvanceInline() {
   function selectionInsideEquation() {
     const sel = window.getSelection();
     const node = sel && sel.anchorNode ? (sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode) : null;
-    return node && (node.closest(".notion-equation") || node.closest(".katex"));
+    return node && node.closest(".notion-equation, .notion-text-equation-token, .notion-equation-inline, .katex");
   }
 
   if (guide.mo) { guide.mo.disconnect(); guide.mo = null; }
   let rafId = null;
   let doneClickedOnce = false;
   let hotkeyDispatched = false;
+  let advanced = false;
+
+  function advanceSoon(delay = 60) {
+    if (advanced) return;
+    advanced = true;
+    setTimeout(() => {
+      if (guide) goStepInline(+1);
+    }, delay);
+  }
 
   guide.mo = new MutationObserver(() => {
     if (rafId) cancelAnimationFrame(rafId);
@@ -261,21 +321,18 @@ function armAutoAdvanceInline() {
         const ok = await autoClickDialogDone(dlg);
         if (ok) {
           doneClickedOnce = true;
-          setTimeout(() => {
-            if (guide) {
-              goStepInline(+1);
-            }
-          }, 60);
+          advanceSoon(60);
           return;
         }
       }
 
+      if (countInlineEquations(guide.currentInlineBlock) > guide.inlineEquationCountBefore) {
+        advanceSoon(80);
+        return;
+      }
+
       if (selectionInsideEquation()) {
-        setTimeout(() => { 
-          if (guide) {
-            goStepInline(+1); 
-          }
-        }, 40);
+        advanceSoon(40);
       }
     });
   });
@@ -326,7 +383,10 @@ function dispatchInlineEquationHotkey() {
 }
 
 function findEquationDialog() {
-  const editor = document.querySelector('div[role="dialog"] [contenteditable="true"][data-content-editable-leaf="true"]');
+  const editor = document.querySelector(
+    'div[role="dialog"] [contenteditable="true"][data-content-editable-leaf="true"], ' +
+    'div[role="dialog"] [contenteditable="true"]'
+  );
   return editor ? editor.closest('div[role="dialog"]') : null;
 }
 
@@ -386,22 +446,21 @@ async function runInlineMode() {
 // Find blocks that contain ONLY a single equation ($$...$$)
 function collectBlockEquationItems() {
   const items = [];
-  const roots = new Set();
-  for (const s of ROOTS) document.querySelectorAll(s).forEach(n => roots.add(n));
-  if (!roots.size) roots.add(document.body);
+  const seen = new Set();
 
-  for (const root of roots) {
-    // Find all text blocks
-    const blocks = root.querySelectorAll('[contenteditable="true"]');
-    
+  for (const root of getRoots()) {
+    const blocks = getTextBlocks(root);
+
     for (const block of blocks) {
+      if (seen.has(block)) continue;
+      seen.add(block);
       if (isCodeCtx(block)) continue;
       if (isMathAlready(block)) continue;
       
       const text = block.textContent?.trim() || "";
       
       // Check if block contains ONLY $$...$$ (display equation)
-      const match = /^\$\$(.+?)\$\$$/.exec(text);
+      const match = /^\$\$([\s\S]+?)\$\$$/.exec(text);
       if (match && match[0] === text) {
         items.push({ 
           block, 
@@ -417,18 +476,63 @@ function collectBlockEquationItems() {
 
 // ==================== MODE 3: INLINE-TO-BLOCK CONVERSION ====================
 
+function extractEquationLatex(el) {
+  const annotation = el.querySelector?.('annotation[encoding="application/x-tex"], annotation');
+  if (annotation?.textContent?.trim()) return annotation.textContent.trim();
+
+  const label = el.getAttribute?.("aria-label") || el.getAttribute?.("title");
+  if (label) {
+    const cleaned = label.replace(/^(equation|math|latex)\s*[:：-]?\s*/i, "").trim();
+    if (cleaned) return cleaned;
+  }
+
+  return (el.textContent || "").trim();
+}
+
+function inlineEquationElements(block) {
+  const candidates = Array.from(block.querySelectorAll(INLINE_EQUATION_SELECTOR));
+  for (const annotation of block.querySelectorAll('annotation')) {
+    const wrapper = annotation.closest('.notion-text-equation-token, .notion-equation-inline') ||
+      annotation.closest(INLINE_EQUATION_SELECTOR) ||
+      annotation.closest('[data-content-editable-void="true"], [class*="equation" i], .katex') ||
+      annotation.parentElement;
+    if (wrapper) candidates.push(wrapper);
+  }
+
+  const normalized = candidates.map(el =>
+    el.closest?.('.notion-text-equation-token, .notion-equation-inline') || el
+  );
+
+  return Array.from(new Set(normalized)).filter(el => {
+    if (!el || el.closest(".notion-equation, .notion-equation-block, figure.equation, .katex-display")) return false;
+    return !!extractEquationLatex(el);
+  });
+}
+
+function cloneWithoutInlineEquations(block) {
+  const clone = block.cloneNode(true);
+  clone.querySelectorAll(INLINE_EQUATION_SELECTOR).forEach(eq => eq.remove());
+  clone.querySelectorAll('annotation').forEach(annotation => {
+    const wrapper = annotation.closest('.notion-text-equation-token, .notion-equation-inline') ||
+      annotation.closest('[data-content-editable-void="true"], [class*="equation" i], .katex');
+    (wrapper || annotation).remove();
+  });
+  clone.querySelectorAll('style').forEach(style => style.remove());
+  return clone;
+}
+
 // Find blocks that contain ONLY a single Notion inline equation
 function collectInlineToBlockItems() {
   const items = [];
-  const roots = new Set();
-  for (const s of ROOTS) document.querySelectorAll(s).forEach(n => roots.add(n));
-  if (!roots.size) roots.add(document.body);
+  const seen = new Set();
 
-  for (const root of roots) {
-    const blocks = root.querySelectorAll('[contenteditable="true"]');
+  for (const root of getRoots()) {
+    const blocks = getTextBlocks(root);
     console.log(`[Mode 3] Checking ${blocks.length} editable blocks`);
     
     for (const block of blocks) {
+      if (seen.has(block)) continue;
+      seen.add(block);
       if (isCodeCtx(block)) continue;
       if (isMathAlready(block)) continue;
 
@@ -447,16 +551,14 @@ function collectInlineToBlockItems() {
         }
       }
 
-      // Look for Notion's inline equation wrapper (updated selector for new Notion)
-      const inlineEqs = block.querySelectorAll('.notion-text-equation-token, .notion-equation-inline');
-      if (inlineEqs.length === 0) continue;
+      // Look for Notion's inline equation wrapper across older and newer DOM shapes.
+      const inlineEqs = inlineEquationElements(block);
+      if (inlineEqs.length !== 1) continue;
       
       console.log(`[Mode 3] Found block with ${inlineEqs.length} inline equations`);
 
       // Check if there is other text content
-      const clone = block.cloneNode(true);
-      // Remove ALL inline equations
-      clone.querySelectorAll('.notion-text-equation-token, .notion-equation-inline').forEach(eq => eq.remove());
+      const clone = cloneWithoutInlineEquations(block);
       
       const remainingText = clone.textContent?.trim() || '';
       console.log(`[Mode 3] Remaining text after removing equations: "${remainingText}"`);
@@ -467,15 +569,14 @@ function collectInlineToBlockItems() {
         continue;
       }
 
-      // Extract LaTeX from annotation
-      const annotation = inlineEqs[0].querySelector('annotation');
-      console.log(`[Mode 3] Annotation found:`, !!annotation, annotation?.textContent);
+      const equation = extractEquationLatex(inlineEqs[0]);
+      console.log(`[Mode 3] Extracted equation:`, equation);
       
-      if (annotation && annotation.textContent) {
-        console.log(`[Mode 3] Adding item with equation: ${annotation.textContent}`);
+      if (equation) {
+        console.log(`[Mode 3] Adding item with equation: ${equation}`);
         items.push({ 
           block, 
-          equation: annotation.textContent, 
+          equation,
           originalText: "Inline Equation" 
         });
       }
@@ -533,7 +634,10 @@ async function convertBlockToEquation(item) {
   await sleep(400);
   
   // Find the equation input field
-  const eqInput = document.querySelector('div[role="dialog"] [contenteditable="true"][data-content-editable-leaf="true"]');
+  const eqInput = document.querySelector(
+    'div[role="dialog"] [contenteditable="true"][data-content-editable-leaf="true"], ' +
+    'div[role="dialog"] [contenteditable="true"]'
+  );
   if (eqInput) {
     eqInput.focus();
     await sleep(60);
@@ -606,8 +710,10 @@ document.addEventListener('keydown', (e) => {
 
 // ==================== MESSAGE HANDLER ====================
 
-chrome.runtime.onMessage.addListener(m => {
-  if (m?.t === "RUN_INLINE_CONVERT") {
+chrome.runtime.onMessage.addListener((m, _sender, sendResponse) => {
+  if (m?.t === "PING_EQUATION_CONVERTER") {
+    sendResponse({ ok: true });
+  } else if (m?.t === "RUN_INLINE_CONVERT") {
     runInlineMode();
   } else if (m?.t === "RUN_BLOCK_CONVERT") {
     runBlockMode();

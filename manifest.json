@@ -5,15 +5,30 @@
   "description": "Convert $...$ to inline equations, and provides tools for block equation conversion.",
   
   "permissions": ["activeTab", "scripting", "contextMenus", "storage"],
-  "host_permissions": ["https://www.notion.so/*", "https://*.notion.site/*"],
+  "host_permissions": [
+    "https://www.notion.so/*",
+    "https://notion.so/*",
+    "https://*.notion.so/*",
+    "https://www.notion.com/*",
+    "https://notion.com/*",
+    "https://*.notion.com/*",
+    "https://*.notion.site/*"
+  ],
   
   "background": { "service_worker": "background.js" },
   
   "content_scripts": [
     {
-      "matches": ["https://www.notion.so/*", "https://*.notion.site/*"],
+      "matches": [
+        "https://www.notion.so/*",
+        "https://notion.so/*",
+        "https://*.notion.so/*",
+        "https://www.notion.com/*",
+        "https://notion.com/*",
+        "https://*.notion.com/*",
+        "https://*.notion.site/*"
+      ],
       "js": ["content.js"],
-      "all_frames": true,
       "run_at": "document_idle"
     }
   ],
